@@ -25,6 +25,7 @@ contract FlightSuretyApp {
     uint8 private constant STATUS_CODE_LATE_OTHER = 50;
 
     address private contractOwner;          // Account used to deploy contract
+    FlightSuretyData flightSuretyData;
 
     struct Flight {
         bool isRegistered;
@@ -71,12 +72,10 @@ contract FlightSuretyApp {
     * @dev Contract constructor
     *
     */
-    constructor
-                                (
-                                ) 
-                                public 
+    constructor (address dataContract) public
     {
         contractOwner = msg.sender;
+        flightSuretyData = FlightSuretyData(dataContract);
     }
 
     /********************************************************************************************/
@@ -101,27 +100,20 @@ contract FlightSuretyApp {
     *
     */   
     function registerAirline
-                            (   
-                            )
+                            (address airline)
                             external
-                            pure
                             returns(bool success, uint256 votes)
     {
-        return (success, 0);
+        return flightSuretyData.registerAirline(airline);
     }
-
 
    /**
     * @dev Register a future flight for insuring.
     *
-    */  
-    function registerFlight
-                                (
-                                )
-                                external
-                                pure
+    */
+    function registerFlight (bytes32 key, bool isRegistered, uint8 statusCode, uint256 updatedTimestamp, address airline) external
     {
-
+        flights[key] = Flight({isRegistered: isRegistered, statusCode: statusCode, updatedTimestamp: updatedTimestamp, airline: airline});
     }
     
    /**
@@ -230,7 +222,7 @@ contract FlightSuretyApp {
                             )
                             view
                             external
-                            returns(uint8[3])
+                            returns(uint8[3] memory)
     {
         require(oracles[msg.sender].isRegistered, "Not registered as an oracle");
 
@@ -278,7 +270,7 @@ contract FlightSuretyApp {
     function getFlightKey
                         (
                             address airline,
-                            string flight,
+                            string memory flight,
                             uint256 timestamp
                         )
                         pure
@@ -294,7 +286,7 @@ contract FlightSuretyApp {
                                 address account         
                             )
                             internal
-                            returns(uint8[3])
+                            returns(uint8[3] memory)
     {
         uint8[3] memory indexes;
         indexes[0] = getRandomIndex(account);
@@ -334,4 +326,17 @@ contract FlightSuretyApp {
 
 // endregion
 
-}   
+}
+
+contract FlightSuretyData
+{
+    /**
+    * @dev Add an airline to the registration queue
+    *
+    */ 
+    function registerAirline(address newAirline) external returns(bool success, uint256 votes);
+    /**
+    * @dev Add the first airline to the registration queue
+    *
+    */ 
+}

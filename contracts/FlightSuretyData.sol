@@ -11,6 +11,27 @@ contract FlightSuretyData {
 
     address private contractOwner;                                      // Account used to deploy contract
     bool private operational = true;                                    // Blocks all state changes throughout the contract if false
+    mapping(address => uint256) private authorizedContracts;
+
+    struct Airline {
+        address airline;
+        string name;
+        bool hasFunded;
+        //uint256 nrApprovers;
+        //mapping(address => uint256) approvers;
+    }
+
+    mapping(address => mapping(address => uint256)) airlineQueue;
+    mapping(address => address[]) airlinesQueued;
+    mapping(address => uint256) registeredAirlines;
+    uint256 private nrAirlines;
+    uint constant MAX_AIRLINES_WITHOUT_VOTING = 5;
+    mapping(address => uint256) airlineFunds;
+    mapping(address => uint256) authorizedAirlines;
+
+    event AirlineRegistered(address airline);
+    event AirlineAuthorized(address airline); // funded
+    event AirlineVotes(uint256 votes);
 
     /********************************************************************************************/
     /*                                       EVENT DEFINITIONS                                  */
@@ -21,12 +42,11 @@ contract FlightSuretyData {
     * @dev Constructor
     *      The deploying account becomes contractOwner
     */
-    constructor
-                                (
-                                ) 
-                                public 
+    constructor (address firstAirline) public
     {
         contractOwner = msg.sender;
+        authorizedAirlines[firstAirline] = 1;
+        nrAirlines = 1;
     }
 
     /********************************************************************************************/
@@ -56,9 +76,39 @@ contract FlightSuretyData {
         _;
     }
 
+    /**
+    * @dev Modifier that requires the airline to be authorized
+    */
+    modifier requireAirlineAuthorized()
+    {
+        // cannot use msg.sender here as the call may pass through other
+        // contracts along the way, and msg.sender gets overwritten at each subsequent call
+        require(authorizedAirlines[tx.origin] == 1, "Airline is NOT authorized to register another airline!!");
+        _;
+    }
+
+    /**
+    * @dev Modifier that requires the new airline to NOT be already authorized
+    */
+    modifier requireAirlineUnique(address newAirline)
+    {
+        require(authorizedAirlines[newAirline] != 1, "New airline must not already be authorized");
+        _;
+    }
+
     /********************************************************************************************/
     /*                                       UTILITY FUNCTIONS                                  */
     /********************************************************************************************/
+
+    /**
+    * @dev Get number of registered airlines
+    *
+    * @return The number of registered airlines
+    */  
+    function getNrAirlines() public view returns(uint256) 
+    {
+        return nrAirlines;
+    }
 
     /**
     * @dev Get operating status of contract
@@ -73,6 +123,15 @@ contract FlightSuretyData {
         return operational;
     }
 
+    /**
+    * @dev Check if address is airline
+    *
+    * @return A bool that indicates if the address is an airline
+    */      
+    function isAirline(address airline) public view requireIsOperational returns(bool)
+    {
+        return authorizedAirlines[airline] == 1;
+    }
 
     /**
     * @dev Sets contract operations on/off
@@ -96,14 +155,46 @@ contract FlightSuretyData {
    /**
     * @dev Add an airline to the registration queue
     *      Can only be called from FlightSuretyApp contract
+    *      Note that this operation can only be done by funded airlines!!
     *
-    */   
+    */
     function registerAirline
-                            (   
-                            )
-                            external
-                            pure
+                            (address newAirline) requireAirlineAuthorized() requireAirlineUnique(newAirline)
+                            external returns(bool success, uint256 votes) 
     {
+       if (nrAirlines < MAX_AIRLINES_WITHOUT_VOTING)
+       {
+           registeredAirlines[newAirline] = 1;
+           emit AirlineRegistered(newAirline);
+           nrAirlines += 1;
+           return (true, 0);
+       }
+
+       // vote here M of N
+       require(airlineQueue[newAirline][tx.origin] != 1, "Airline already voted for new airline authorization. Cannot double vote!!");
+       airlineQueue[newAirline][tx.origin] = 1;
+       airlinesQueued[newAirline].push(tx.origin); 
+       //Airline({airline: msg.sender, name: "", hasFunded: false});
+
+       // votes not sufficient
+       if (airlinesQueued[newAirline].length < nrAirlines.div(2))
+       {
+            emit AirlineVotes(airlinesQueued[newAirline].length);
+            return (false, airlinesQueued[newAirline].length);
+       }
+
+       nrAirlines = nrAirlines + 1;
+       registeredAirlines[newAirline] = 1;
+       emit AirlineRegistered(newAirline);
+
+       // cleanup
+       address[] memory tmp = airlinesQueued[newAirline];
+       for (uint256 i = 0; i < tmp.length; ++i)
+       {
+           delete airlineQueue[newAirline][tmp[i]];
+       }
+       delete airlinesQueued[newAirline];
+       return (true, 0);
     }
 
 
@@ -149,12 +240,19 @@ contract FlightSuretyData {
     *      resulting in insurance payouts, the contract should be self-sustaining
     *
     */   
-    function fund
-                            (   
-                            )
-                            public
-                            payable
+    function fund(/*address airline*/) public payable requireIsOperational
     {
+        // ensures this is not callable by a contract, only an externally owned account
+        uint256 amount = 10 ether;
+        require(msg.value >= amount, "Insufficient funds");
+        require(authorizedAirlines[msg.sender] != 1, "Airline already authorized.");
+
+        uint256 change = msg.value.sub(amount);
+        airlineFunds[msg.sender].add(amount);// = airlineFunds[msg.sender].sub(amount);
+        authorizedAirlines[msg.sender] = 1;
+        msg.sender.transfer(change); // transfer change back to the caller
+
+        emit AirlineAuthorized(msg.sender);
     }
 
     function getFlightKey
@@ -179,6 +277,16 @@ contract FlightSuretyData {
                             payable 
     {
         fund();
+    }
+
+    function authorizeCaller(address callerAddress) external requireContractOwner
+    {
+        authorizedContracts[callerAddress] = 1;
+    }
+
+    function deauthorizeCaller(address callerAddress) external requireContractOwner
+    {
+        delete authorizedContracts[callerAddress];
     }
 
 
