@@ -34,10 +34,17 @@ module.exports = {
   plugins: [
     new HtmlWebpackPlugin({ 
       template: path.join(__dirname, "src/dapp/index.html")
-    })
+    }),
   ],
   resolve: {
-    extensions: [".js"]
+    extensions: [".js"],
+    fallback: {
+      http: false,
+      https: false,
+      stream: false,
+      crypto: false,
+      os: false,
+    },
   },
   devServer: {
     contentBase: path.join(__dirname, "dapp"),

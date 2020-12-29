@@ -1,7 +1,7 @@
 const webpack = require('webpack')
 const path = require('path')
 const nodeExternals = require('webpack-node-externals')
-const StartServerPlugin = require('start-server-webpack-plugin')
+const StartServerPlugin = require('start-server-nestjs-webpack-plugin') // https://www.gitmemory.com/issue/nestjs/nest/5706/728959530
 
 module.exports = {
     entry: [
@@ -10,8 +10,9 @@ module.exports = {
     ],
     watch: true,
     target: 'node',
+    mode: 'development',
     externals: [nodeExternals({
-        whitelist: ['webpack/hot/poll?1000']
+        allowlist: ['webpack/hot/poll?1000']
     })],
     module: {
         rules: [{
@@ -21,8 +22,8 @@ module.exports = {
         }]
     },
     plugins: [
-        new StartServerPlugin('server.js'),
-        new webpack.NamedModulesPlugin(),
+        new StartServerPlugin({entryName: 'server.js'}),
+        //new webpack.NamedModulesPlugin(), // no longer needed according to: https://www.gitmemory.com/issue/webpack/webpack/11637/706718119
         new webpack.HotModuleReplacementPlugin(),
         new webpack.NoEmitOnErrorsPlugin(),
         new webpack.DefinePlugin({
@@ -30,6 +31,9 @@ module.exports = {
                 "BUILD_TARGET": JSON.stringify('server')
             }
         }),
+        /*new webpack.ProvidePlugin({
+            process: 'process/browser',
+          }),*/
     ],
     output: {
         path: path.join(__dirname, 'prod/server'),
