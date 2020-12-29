@@ -101,10 +101,36 @@ contract FlightSuretyApp {
     */   
     function registerAirline
                             (address airline)
-                            external
+                            external requireIsOperational
                             returns(bool success, uint256 votes)
     {
         return flightSuretyData.registerAirline(airline);
+    }
+
+   /**
+    * @dev Buy insurance for a flight
+    *
+    */   
+    function buyInsurance(bytes32 flightKey) external payable requireIsOperational
+    {
+        flightSuretyData.buy(flightKey, msg.value);
+    }
+
+    /**
+     *  @dev App trigger that credits payouts to insurees
+    */
+    function creditInsurees(bytes32 flightKey) external
+    {
+        return flightSuretyData.creditInsurees(flightKey);
+    }
+
+   /**
+    * @dev Fund an airline that is in the registation queue, in order to authorize it
+    *
+    */
+    function fundAirlineInsurance(/*address airline*/) external payable requireIsOperational
+    {
+        return flightSuretyData.fund(msg.value);
     }
 
    /**
@@ -114,6 +140,7 @@ contract FlightSuretyApp {
     function registerFlight (bytes32 key, bool isRegistered, uint8 statusCode, uint256 updatedTimestamp, address airline) external
     {
         flights[key] = Flight({isRegistered: isRegistered, statusCode: statusCode, updatedTimestamp: updatedTimestamp, airline: airline});
+        emit RegisterFlight(key, updatedTimestamp, statusCode, airline);
     }
     
    /**
@@ -128,8 +155,10 @@ contract FlightSuretyApp {
                                     uint8 statusCode
                                 )
                                 internal
-                                pure
     {
+        bytes32 key = this.getFlightKey(airline, flight, timestamp);
+        bool isRegistered = true; // is registered??
+        this.registerFlight(key, isRegistered, statusCode, timestamp, airline); // update it
     }
 
 
@@ -198,6 +227,7 @@ contract FlightSuretyApp {
     // they fetch data and submit a response
     event OracleRequest(uint8 index, address airline, string flight, uint256 timestamp);
 
+    event RegisterFlight(bytes32 key, uint256 timestamp, uint8 status, address airline);
 
     // Register an oracle with the contract
     function registerOracle
@@ -266,16 +296,8 @@ contract FlightSuretyApp {
         }
     }
 
-
-    function getFlightKey
-                        (
-                            address airline,
-                            string memory flight,
-                            uint256 timestamp
-                        )
-                        pure
-                        internal
-                        returns(bytes32) 
+    // made external for the mocha unit tests
+    function getFlightKey(address airline, string flight, uint256 timestamp) pure external returns(bytes32) 
     {
         return keccak256(abi.encodePacked(airline, flight, timestamp));
     }
@@ -339,4 +361,14 @@ contract FlightSuretyData
     * @dev Add the first airline to the registration queue
     *
     */ 
+    function fund(uint256 amountToFund) external;
+    /**
+    * @dev Buy insurance for a flight
+    *
+    */ 
+    function buy(bytes32 flightKey, uint256 amount) external payable;
+    /**
+     *  @dev Credits payouts to insurees
+    */
+    function creditInsurees(bytes32 flightKey) external;
 }

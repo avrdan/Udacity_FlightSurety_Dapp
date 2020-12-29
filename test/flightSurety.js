@@ -1,4 +1,6 @@
-
+// assume accounts 1-10 airlines
+// assume accounts 11-20 passengers
+// assume accounts 30-50 oracles
 var Test = require('../config/testConfig.js');
 var BigNumber = require('bignumber.js');
 
@@ -108,7 +110,8 @@ contract('Flight Surety Tests', async (accounts) => {
         assert.equal(event.logs != undefined && event.logs[0] == "AirlineRegistered", false, "Airline registered event not received.");
         // TODO: see if we need to expose fund to the app contract
         var amount = 10;
-        event = await config.flightSuretyData.fund({from: newAirline, value: web3.utils.toWei(amount.toString(), "ether")});
+        //event = await config.flightSuretyData.fund({from: newAirline, value: web3.utils.toWei(amount.toString(), "ether")});
+        event = await config.flightSuretyApp.fundAirlineInsurance({from: newAirline, value: web3.utils.toWei(amount.toString(), "ether")});
         assert.equal(event.logs != undefined && event.logs[0] == "AirlineAuthorized", false, "Airline authorized event not received.");
     }
     catch(e) {
@@ -133,7 +136,8 @@ contract('Flight Surety Tests', async (accounts) => {
             console.log("Airline: " + i);
             let event = await config.flightSuretyApp.registerAirline(accounts[i], {from: accounts[1]});
             assert.equal(event.logs != undefined && event.logs[0] == "AirlineRegistered", false, "Airline registered event not received.");
-            event = await config.flightSuretyData.fund({from: accounts[i], value: web3.utils.toWei(amount.toString(), "ether")});
+            //event = await config.flightSuretyData.fund({from: accounts[i], value: web3.utils.toWei(amount.toString(), "ether")});
+            event = await config.flightSuretyApp.fundAirlineInsurance({from: accounts[i], value: web3.utils.toWei(amount.toString(), "ether")});
             assert.equal(event.logs != undefined && event.logs[0] == "AirlineAuthorized", false, "Airline authorized event not received.");
         }
     }
@@ -167,7 +171,8 @@ contract('Flight Surety Tests', async (accounts) => {
         event = await config.flightSuretyApp.registerAirline(accounts[MAX_AIRLINES_WITHOUT_VOTING + 1], {from: accounts[3]});
         assert.equal(event.logs != undefined && event.logs[0] == "AirlineRegistered", false, "Airline registered event not received.");
         // new airline 6 registered, authorize it by funding after 3/5 votes
-        event = await config.flightSuretyData.fund({from: accounts[MAX_AIRLINES_WITHOUT_VOTING + 1], value: web3.utils.toWei(amount.toString(), "ether")});
+        //event = await config.flightSuretyData.fund({from: accounts[MAX_AIRLINES_WITHOUT_VOTING + 1], value: web3.utils.toWei(amount.toString(), "ether")});
+        event = await config.flightSuretyApp.fundAirlineInsurance({from: accounts[MAX_AIRLINES_WITHOUT_VOTING + 1], value: web3.utils.toWei(amount.toString(), "ether")});
         assert.equal(event.logs != undefined && event.logs[0] == "AirlineAuthorized", false, "Airline authorized event not received.");
     } catch(e) {
         console.log(e);
@@ -177,6 +182,87 @@ contract('Flight Surety Tests', async (accounts) => {
     // ASSERT
     let result = await config.flightSuretyData.isAirline.call(accounts[MAX_AIRLINES_WITHOUT_VOTING + 1]);
     assert.equal(result, true, "Airline multi-sig authorization error.");
+  });
+
+  it(`(buy insurance) Passengers can buy insurance for a specific flight if amount is valid.`, async function () {
+    let airline = accounts[1];
+    let isRegistered = true; // normally, needs to be done by oracles
+    let updatedTimestamp = 1609069459467;
+    let statusCode = 10; // STATUS_CODE_ON_TIME
+    let FIRST_PASSENGER_ACCOUNT = 11;
+    var i = 1;
+    try
+    {
+        let key = await config.flightSuretyApp.getFlightKey.call(airline, "TEST_FLIGHT_01", updatedTimestamp);
+        console.log("key: ", key);
+        var event = await config.flightSuretyApp.registerFlight(key, isRegistered, statusCode, updatedTimestamp, airline);
+        assert.equal(event.logs != undefined && event.logs[0] == "RegisterFlight", false, "Faiure, registering flight.");
+        var amount = 0.5;
+        for (i = 1; i <= 3; ++i)
+        {
+            console.log("Passenger: " + i);
+            await config.flightSuretyApp.buyInsurance(key, {from: accounts[FIRST_PASSENGER_ACCOUNT + (i - 1)], value: web3.utils.toWei(amount.toString(), "ether")});
+            amount += 0.5;
+        }
+    } catch(e) {
+        if (String(e).includes("Insurance can be bought for a price of maximum 1 ETH") && i == 3)
+        {
+            console.log ("Ok, third passenger cannot buy the insurance (amount too large) - expected.");
+        } else
+        {
+            assert.equal(true, false, "Flight cannot be registered!! " + e);
+        }
+    }
+  });
+
+  it(`(buy insurance) Credit all passengers who bought insurance.`, async function () {
+    let airline = accounts[1];
+    let updatedTimestamp = 1609069459467;    
+    let key = await config.flightSuretyApp.getFlightKey.call(airline, "TEST_FLIGHT_01", updatedTimestamp);
+    console.log("key: ", key);
+
+    let FIRST_PASSENGER_ACCOUNT = 11;
+    let initialBalance1 = await web3.eth.getBalance(accounts[FIRST_PASSENGER_ACCOUNT]);
+    console.log("Init. Balance1: " + initialBalance1);
+    let initialBalance2 = await web3.eth.getBalance(accounts[FIRST_PASSENGER_ACCOUNT + 1]);
+    console.log("Init. Balance2: " + initialBalance2);
+    let initialBalance3 = await web3.eth.getBalance(accounts[FIRST_PASSENGER_ACCOUNT + 2]);
+    console.log("Init. Balance3: " + initialBalance3);
+
+    try
+    {
+        var event = await config.flightSuretyApp.creditInsurees(key);
+        let finalBalance1 = await web3.eth.getBalance(accounts[FIRST_PASSENGER_ACCOUNT]);
+        console.log("Final. Balance1: " + finalBalance1);
+        let finalBalance2 = await web3.eth.getBalance(accounts[FIRST_PASSENGER_ACCOUNT + 1]);
+        console.log("Final. Balance2: " + finalBalance2);
+        let finalBalance3 = await web3.eth.getBalance(accounts[FIRST_PASSENGER_ACCOUNT + 2]);
+        console.log("Final. Balance3: " + finalBalance3);
+
+        let diff1 = finalBalance1 - initialBalance1;
+        let diff2 = finalBalance2 - initialBalance2;
+        let diff3 = finalBalance3 - initialBalance3;
+
+        console.log("Diff1:", diff1);
+        console.log("Diff2:", diff2);
+        console.log("Diff3:", diff3);
+
+        assert.equal(diff1 > 0 && diff2 > 0 && diff3 == 0, "First two passangers didn't get the expected payouts!!");
+
+        //console.log(event);
+        /*if (event.logs != undefined)
+        {
+            for (i = 0; i < event.logs.length; ++i)
+            {
+                if (event.logs[i] == "InsurancePayout")
+                {
+                    console.log("--- Insurance payout detected ---");
+                }
+            }
+        }*/
+    } catch(e) {
+        assert.equal(true, false, "Error! Could not credit passengers!! " + e);
+    }
   });
 
 });

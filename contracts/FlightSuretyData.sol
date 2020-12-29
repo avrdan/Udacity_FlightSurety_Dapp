@@ -32,6 +32,22 @@ contract FlightSuretyData {
     event AirlineRegistered(address airline);
     event AirlineAuthorized(address airline); // funded
     event AirlineVotes(uint256 votes);
+    event BuyInsurance(address passenger, uint256 amount);
+    event InsurancePayout(address passenger, uint256 amount);
+
+    struct Insurance
+    {
+        //address passenger;
+        bool isActive;
+        uint256 amount;
+        bytes32 flightKey;
+    }
+    //mapping(address => bytes32) passangerToFlightInsurance;
+    mapping(address => Insurance) passengerToFlightInsurance;
+    // need to have all passangers per flight
+    mapping(bytes32 => address[]) passengersInFlight;
+    // also need to store the value
+    
 
     /********************************************************************************************/
     /*                                       EVENT DEFINITIONS                                  */
@@ -202,57 +218,65 @@ contract FlightSuretyData {
     * @dev Buy insurance for a flight
     *
     */   
-    function buy
-                            (                             
-                            )
-                            external
-                            payable
+    function buy(bytes32 flightKey, uint256 amount) external payable
     {
-
+        require(amount <= 1 ether, "Insurance can be bought for a price of maximum 1 ETH");
+        require(passengerToFlightInsurance[tx.origin].isActive == false, "Passanger has already booked insurance");
+        passengerToFlightInsurance[tx.origin] = Insurance({isActive: true, amount: amount, flightKey: flightKey});
+        passengersInFlight[flightKey].push(tx.origin);
+        //address(this).transfer({value: amount, from: tx.origin });
+        emit BuyInsurance(tx.origin, amount);
     }
 
     /**
      *  @dev Credits payouts to insurees
     */
-    function creditInsurees
-                                (
-                                )
-                                external
-                                pure
+    function creditInsurees(bytes32 flightKey) external
     {
+        address[] memory passengers = passengersInFlight[flightKey];
+        for (uint256 i = 0; i < passengers.length; ++i)
+        {
+            if (passengerToFlightInsurance[passengers[i]].isActive)
+            {
+                pay(passengers[i], passengerToFlightInsurance[passengers[i]].amount);
+            }
+        }
     }
-    
 
     /**
      *  @dev Transfers eligible payout funds to insuree
      *
     */
-    function pay
-                            (
-                            )
-                            external
-                            pure
+    function pay(address passenger, uint256 amount) public payable
     {
-    }
+        require(amount > 0, "The insured amount must be positive");
+        //require(address(this).balance > amount, "Contract does not have enough for payouts");
+        //delete passengerToFlightInsurance[passenger]; // delete insured passanger entry, in effect setting the amount to 0
+        uint256 finalCredit = amount.add(amount.div(2));        
+        passenger.transfer(finalCredit);
+        emit InsurancePayout(passenger, finalCredit);
+    } 
 
    /**
     * @dev Initial funding for the insurance. Unless there are too many delayed flights
     *      resulting in insurance payouts, the contract should be self-sustaining
     *
     */   
-    function fund(/*address airline*/) public payable requireIsOperational
+    function fund(uint256 amountToFund) external payable requireIsOperational
     {
         // ensures this is not callable by a contract, only an externally owned account
-        uint256 amount = 10 ether;
-        require(msg.value >= amount, "Insufficient funds");
-        require(authorizedAirlines[msg.sender] != 1, "Airline already authorized.");
+        uint256 minAmount = 10 ether;
+        require(amountToFund >= minAmount, "Insufficient funds");
+        require(authorizedAirlines[tx.origin] != 1, "Airline already authorized.");
 
-        uint256 change = msg.value.sub(amount);
-        airlineFunds[msg.sender].add(amount);// = airlineFunds[msg.sender].sub(amount);
-        authorizedAirlines[msg.sender] = 1;
-        msg.sender.transfer(change); // transfer change back to the caller
+        //uint256 change = amountToFund.sub(amount);
+        airlineFunds[tx.origin].add(amountToFund);// = airlineFunds[msg.sender].sub(amount);
+        authorizedAirlines[tx.origin] = 1;
+        //msg.sender.transfer(change); // transfer change back to the caller
 
-        emit AirlineAuthorized(msg.sender);
+        // Note: in the end, decided to not send change back but fund the contract with the full
+        // amount, even if 10 eth is minimum
+        emit AirlineAuthorized(tx.origin);
     }
 
     function getFlightKey
@@ -276,7 +300,7 @@ contract FlightSuretyData {
                             external 
                             payable 
     {
-        fund();
+        this.fund(10);
     }
 
     function authorizeCaller(address callerAddress) external requireContractOwner
