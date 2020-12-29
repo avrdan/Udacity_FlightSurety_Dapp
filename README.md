@@ -2,6 +2,13 @@
 
 FlightSurety is a sample application project for Udacity's Blockchain course.
 
+It is a blockchain-based flight insurance solution, where:
+
+* Airlines are added to a smart contract if they provide funding and register
+* Airlines can vote to add new airlines to the pool
+* Passengers can request insurance from the airlines
+* The contract pays the passengers in the case of an insured event (i.e: flight is delayed)
+
 ## Install
 
 This repository contains Smart Contract code in Solidity (using Truffle), tests (also using Truffle), dApp scaffolding (using HTML, CSS and JS) and server app scaffolding.
